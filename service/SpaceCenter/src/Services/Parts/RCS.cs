@@ -148,7 +148,7 @@ namespace KRPC.SpaceCenter.Services.Parts
             get {
                 if (!Active)
                     return Vector3d.zero;
-                return rcs.GetPotentialTorque () * 1000f;
+                return rcs.GetPotentialTorque () * (1000f / rcs.thrusterTransforms.Count);
             }
         }
 
