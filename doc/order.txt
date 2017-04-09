@@ -132,6 +132,9 @@ SpaceCenter.CelestialBody.SphereOfInfluence
 SpaceCenter.CelestialBody.HasAtmosphere
 SpaceCenter.CelestialBody.AtmosphereDepth
 SpaceCenter.CelestialBody.HasAtmosphericOxygen
+SpaceCenter.CelestialBody.TemperatureAt
+SpaceCenter.CelestialBody.DensityAt
+SpaceCenter.CelestialBody.PressureAt
 SpaceCenter.CelestialBody.Biomes
 SpaceCenter.CelestialBody.BiomeAt
 SpaceCenter.CelestialBody.FlyingHighAltitudeThreshold
@@ -173,6 +176,7 @@ SpaceCenter.Flight.DynamicPressure
 SpaceCenter.Flight.StaticPressure
 SpaceCenter.Flight.StaticPressureAtMSL
 SpaceCenter.Flight.AerodynamicForce
+SpaceCenter.Flight.SimulateAerodynamicForceAt
 SpaceCenter.Flight.Lift
 SpaceCenter.Flight.Drag
 SpaceCenter.Flight.SpeedOfSound
