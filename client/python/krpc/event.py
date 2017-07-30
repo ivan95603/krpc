@@ -3,9 +3,11 @@ from krpc.stream import Stream
 
 class Event(object):
     """ An event. """
-    def __init__(self, conn, event):
+    def __init__(self, conn, event, callbacks=None):
         self._stream = Stream.from_stream_id(
-            conn, event.stream.id, conn._types.bool_type, False)
+            conn, event.stream.id, conn._types.bool_type,
+            initial_value=False,
+            callbacks=callbacks)
         self._acquired = False
 
     def acquire(self):
@@ -29,6 +31,9 @@ class Event(object):
         self.stream.condition.wait()
         if acquired:
             self.release()
+
+    def add_callback(self, callback):
+        self._stream.add_callback(callback)
 
     @property
     def stream(self):

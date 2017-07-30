@@ -68,12 +68,20 @@ class Client(object):
             raise StreamError('Not connected to stream server')
         return krpc.stream.add_stream(self, func, *args, **kwargs)
 
-    def acquire_stream(self, func, *args, **kwargs):
+    def add_acquired_stream(self, func, *args, **kwargs):
         """ Add a stream to the server and
             acquire a lock on its condition variable """
         if self._stream_connection is None:
             raise StreamError('Not connected to stream server')
         return krpc.stream.acquire_stream(self, func, *args, **kwargs)
+
+    def add_callback_stream(self, callback, func, *args, **kwargs):
+        """ Add a stream to the server and
+            set its update callback """
+        if self._stream_connection is None:
+            raise StreamError('Not connected to stream server')
+        return krpc.stream.callback_stream(
+            self, callback, func, *args, **kwargs)
 
     @contextmanager
     def stream(self, func, *args, **kwargs):
@@ -87,11 +95,20 @@ class Client(object):
     @contextmanager
     def acquired_stream(self, func, *args, **kwargs):
         """ 'with' support for acquire_stream  """
-        stream = self.acquire_stream(func, *args, **kwargs)
+        stream = self.add_acquired_stream(func, *args, **kwargs)
         try:
             yield stream
         finally:
             stream.release()
+            stream.remove()
+
+    @contextmanager
+    def callback_stream(self, callback, func, *args, **kwargs):
+        """ 'with' support for callback_stream  """
+        stream = self.add_callback_stream(callback, func, *args, **kwargs)
+        try:
+            yield stream
+        finally:
             stream.remove()
 
     def _invoke(self, service, procedure, args,

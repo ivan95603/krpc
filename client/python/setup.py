@@ -29,6 +29,7 @@ setup(
     description='Client library for kRPC, a Remote Procedure Call server for Kerbal Space Program',
     long_description=open(os.path.join(dirpath, 'README.txt')).read(),
     install_requires=install_requires,
+    tests_require=['six'],
     test_suite='krpc.test',
     use_2to3=True,
     classifiers=[

@@ -8,12 +8,15 @@ class Stream(object):
     """ A streamed request. When invoked, returns the
         most recent value of the request. """
 
-    def __init__(self, conn, acquire, stream_id, call,
-                 return_type, initial_value=None):
+    def __init__(self, conn, stream_id, call, return_type,
+                 acquire=False, initial_value=None, callbacks=None):
         self._value = initial_value
         self._conn = conn
         self._call = call
         self._return_type = return_type
+        self._callbacks = []
+        if callbacks is not None:
+            self._callbacks.extend(callbacks)
         # Set up and acquire the update condition variable
         self._condition = threading.Condition()
         self._condition.acquire()
@@ -31,12 +34,13 @@ class Stream(object):
             self._condition.release()
 
     @classmethod
-    def from_stream_id(cls, conn, stream_id, return_type, initial_value):
-        return cls(conn, False, lambda: stream_id,
-                   None, return_type, initial_value)
+    def from_stream_id(cls, conn, stream_id, return_type,
+                       initial_value, callbacks=None):
+        return cls(conn, lambda: stream_id, None, return_type,
+                   initial_value=initial_value, callbacks=callbacks)
 
     @classmethod
-    def from_call(cls, conn, acquire, func, *args, **kwargs):
+    def from_call(cls, conn, acquire, callbacks, func, *args, **kwargs):
         # Get the request and return type
         if func == getattr:
             # A property or class property getter
@@ -55,8 +59,8 @@ class Stream(object):
             call = func._build_call(*args, **kwargs)
             return_type = func._return_type
         # Create the stream
-        return cls(conn, acquire, lambda: conn.krpc.add_stream(call).id,
-                   call, return_type)
+        return cls(conn, lambda: conn.krpc.add_stream(call).id, call,
+                   return_type, acquire=acquire, callbacks=callbacks)
 
     def __call__(self):
         """ Get the most recent value for this stream. """
@@ -81,6 +85,32 @@ class Stream(object):
         """ Condition variable that is notified when the stream updates """
         return self._condition
 
+    def add_callback(self, callback):
+        """ Add a callback that is invoked whenever the stream is updated """
+        # Makes a copy of the callback as they are iterated over
+        # by the stream update thread
+        callbacks = self._callbacks[:]
+        callbacks.append(callback)
+        self._callbacks = callbacks
+
+    def remove_callback(self, callback, remove_all=False):
+        """ Remove a callback. If the callback was added multiple times,
+            only one instance will be removed unless remove_all
+            is set to True."""
+        # Makes a copy of the callback as they are iterated over
+        # by the stream update thread
+        if remove_all:
+            self._callbacks = [x for x in self._callbacks if x != callback]
+        else:
+            callbacks = self._callbacks[:]
+            callbacks.remove(callback)
+            self._callbacks = callbacks
+
+    @property
+    def callbacks(self):
+        """ The callbacks present in this stream """
+        return self._callbacks[:]
+
     def remove(self):
         """ Remove the stream """
         with self._conn._stream_cache_lock:
@@ -100,17 +130,25 @@ class Stream(object):
         self._value = value
         self._condition.notify_all()
         self._condition.release()
+        for fn in self._callbacks:
+            fn(value)
 
 
 def add_stream(conn, func, *args, **kwargs):
     """ Create a stream and return it """
-    stream = Stream.from_call(conn, False, func, *args, **kwargs)
+    stream = Stream.from_call(conn, False, None, func, *args, **kwargs)
     return conn._stream_cache[stream._stream_id]
 
 
 def acquire_stream(conn, func, *args, **kwargs):
     """ Create a stream, acquire a lock on its condition and return it """
-    stream = Stream.from_call(conn, True, func, *args, **kwargs)
+    stream = Stream.from_call(conn, True, None, func, *args, **kwargs)
+    return conn._stream_cache[stream._stream_id]
+
+
+def callback_stream(conn, callback, func, *args, **kwargs):
+    """ Create a stream, acquire a lock on its condition and return it """
+    stream = Stream.from_call(conn, False, [callback], func, *args, **kwargs)
     return conn._stream_cache[stream._stream_id]
 
 

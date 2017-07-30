@@ -1,5 +1,7 @@
 import unittest
+import threading
 import time
+import six
 from krpc.error import StreamError
 from krpc.test.servertestcase import ServerTestCase
 
@@ -222,13 +224,65 @@ class TestStream(ServerTestCase, unittest.TestCase):
             self.wait()
 
     def test_wait(self):
-        with self.conn.acquired_stream(self.conn.test_service.counter) as x:
+        with self.conn.acquired_stream(self.conn.test_service.counter, 1) as x:
             count = x()
             self.assertTrue(count < 10)
             while count < 10:
                 x.wait()
                 count += 1
                 self.assertEqual(count, x())
+
+    test_callback_value = 0
+
+    def test_callback(self):
+        error = threading.Event()
+        stop = threading.Event()
+
+        def callback(x):
+            if x > 10:
+                stop.set()
+            elif self.test_callback_value+1 != x:
+                error.set()
+                stop.set()
+            else:
+                self.test_callback_value += 1
+
+        with self.conn.callback_stream(callback,
+                                       self.conn.test_service.counter, 2) as _:
+            stop.wait(1)
+
+        self.assertTrue(stop.is_set())
+        self.assertFalse(error.is_set())
+
+    def test_remove_callback(self):
+        def fn1(_):
+            pass
+
+        def fn2(_):
+            pass
+
+        with self.conn.stream(self.conn.test_service.counter, 3) as x:
+            x.add_callback(fn1)
+            x.add_callback(fn2)
+            x.remove_callback(fn1)
+            six.assertCountEqual(self, [fn2], x.callbacks)
+
+    def test_remove_multiple_callbacks(self):
+        def fn1(_):
+            pass
+
+        def fn2(_):
+            pass
+
+        with self.conn.stream(self.conn.test_service.counter, 4) as x:
+            x.add_callback(fn1)
+            x.add_callback(fn1)
+            x.add_callback(fn2)
+            x.add_callback(fn1)
+            x.add_callback(fn2)
+            x.remove_callback(fn1, remove_all=True)
+            x.remove_callback(fn2)
+            six.assertCountEqual(self, [fn2], x.callbacks)
 
 
 if __name__ == '__main__':
