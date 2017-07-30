@@ -11,10 +11,12 @@ namespace KRPC.Server.ProtocolBuffers
         public static Google.Protobuf.IMessage ToProtobufMessage (this IMessage message)
         {
             var type = message.GetType ();
+            if (type == typeof(Service.Messages.Event))
+                return ((Service.Messages.Event)message).ToProtobufMessage ();
             if (type == typeof(Service.Messages.Services))
                 return ((Service.Messages.Services)message).ToProtobufMessage ();
-            if (type == typeof(Stream))
-                return ((Stream)message).ToProtobufMessage ();
+            if (type == typeof(Service.Messages.Stream))
+                return ((Service.Messages.Stream)message).ToProtobufMessage ();
             if (type == typeof(Status))
                 return ((Status)message).ToProtobufMessage ();
             throw new ArgumentException ("Cannot convert a " + type + " to a protobuf message");
@@ -177,9 +179,11 @@ namespace KRPC.Server.ProtocolBuffers
                 if (type == typeof(byte[]))
                     result.Code = Schema.KRPC.Type.Types.TypeCode.Bytes;
             } else if (TypeUtils.IsAMessageType (type)) {
-                if (type == typeof(ProcedureCall))
+                if (type == typeof(Service.Messages.Event))
+                    result.Code = Schema.KRPC.Type.Types.TypeCode.Event;
+                else if (type == typeof(ProcedureCall))
                     result.Code = Schema.KRPC.Type.Types.TypeCode.ProcedureCall;
-                else if (type == typeof(Stream))
+                else if (type == typeof(Service.Messages.Stream))
                     result.Code = Schema.KRPC.Type.Types.TypeCode.Stream;
                 else if (type == typeof(Status))
                     result.Code = Schema.KRPC.Type.Types.TypeCode.Status;
@@ -213,7 +217,14 @@ namespace KRPC.Server.ProtocolBuffers
             return result;
         }
 
-        public static Schema.KRPC.Stream ToProtobufMessage (this Stream stream)
+        public static Schema.KRPC.Event ToProtobufMessage (this Service.Messages.Event evnt)
+        {
+            var result = new Schema.KRPC.Event ();
+            result.Stream = evnt.Stream.ToProtobufMessage ();
+            return result;
+        }
+
+        public static Schema.KRPC.Stream ToProtobufMessage (this Service.Messages.Stream stream)
         {
             var result = new Schema.KRPC.Stream ();
             result.Id = stream.Id;
