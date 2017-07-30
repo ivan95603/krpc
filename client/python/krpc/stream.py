@@ -1,3 +1,4 @@
+import threading
 from krpc.decoder import Decoder
 from krpc.error import StreamError
 import krpc.schema.KRPC_pb2 as KRPC
@@ -7,44 +8,78 @@ class Stream(object):
     """ A streamed request. When invoked, returns the
         most recent value of the request. """
 
-    def __init__(self, conn, func, *args, **kwargs):
+    def __init__(self, conn, acquire, stream_id, call,
+                 return_type, initial_value=None):
+        self._value = initial_value
         self._conn = conn
-        self._func = func
-        self._args = args
-        self._kwargs = kwargs
+        self._call = call
+        self._return_type = return_type
+        # Set up and acquire the update condition variable
+        self._condition = threading.Condition()
+        self._condition.acquire()
+        # Add the stream to the server and the cache
+        new_stream = False
+        with self._conn._stream_cache_lock:
+            self._stream_id = stream_id()
+            if self._stream_id not in self._conn._stream_cache:
+                new_stream = True
+                self._conn._stream_cache[self._stream_id] = self
+        # Wait for the first update
+        if initial_value is None and new_stream:
+            self._condition.wait()
+        if not acquire:
+            self._condition.release()
+
+    @classmethod
+    def from_stream_id(cls, conn, stream_id, return_type, initial_value):
+        return cls(conn, False, lambda: stream_id,
+                   None, return_type, initial_value)
+
+    @classmethod
+    def from_call(cls, conn, acquire, func, *args, **kwargs):
         # Get the request and return type
         if func == getattr:
             # A property or class property getter
             attr = func(args[0].__class__, args[1])
-            self._call = attr.fget._build_call(args[0])
-            self._return_type = attr.fget._return_type
+            call = attr.fget._build_call(args[0])
+            return_type = attr.fget._return_type
         elif func == setattr:
             # A property setter
             raise StreamError('Cannot stream a property setter')
         elif hasattr(func, '__self__'):
             # A method
-            self._call = func._build_call(func.__self__, *args, **kwargs)
-            self._return_type = func._return_type
+            call = func._build_call(func.__self__, *args, **kwargs)
+            return_type = func._return_type
         else:
             # A class method
-            self._call = func._build_call(*args, **kwargs)
-            self._return_type = func._return_type
-        # Set the initial value by running the RPC once
-        try:
-            self._value = func(*args, **kwargs)
-        except Exception as exn:  # pylint: disable=broad-except
-            self._value = exn
-        # Add the stream to the server and add the initial value to the cache
-        with self._conn._stream_cache_lock:
-            self._stream_id = self._conn.krpc.add_stream(self._call).id
-            if self._stream_id not in self._conn._stream_cache:
-                self._conn._stream_cache[self._stream_id] = self
+            call = func._build_call(*args, **kwargs)
+            return_type = func._return_type
+        # Create the stream
+        return cls(conn, acquire, lambda: conn.krpc.add_stream(call).id,
+                   call, return_type)
 
     def __call__(self):
-        """ Get the most recent value for this stream """
+        """ Get the most recent value for this stream. """
         if isinstance(self._value, Exception):
-            raise self._value
+            raise self._value  # pylint: disable=raising-bad-type
         return self._value
+
+    def acquire(self):
+        """ Acquire a lock on the condition variable for the stream """
+        self.condition.acquire()
+
+    def release(self):
+        """ Release the lock on the condition variable for the stream """
+        self.condition.release()
+
+    def wait(self):
+        """ Wait until the next stream update """
+        self.condition.wait()
+
+    @property
+    def condition(self):
+        """ Condition variable that is notified when the stream updates """
+        return self._condition
 
     def remove(self):
         """ Remove the stream """
@@ -61,12 +96,21 @@ class Stream(object):
 
     def update(self, value):
         """ Update the stream's most recent value """
+        self._condition.acquire()
         self._value = value
+        self._condition.notify_all()
+        self._condition.release()
 
 
 def add_stream(conn, func, *args, **kwargs):
     """ Create a stream and return it """
-    stream = Stream(conn, func, *args, **kwargs)
+    stream = Stream.from_call(conn, False, func, *args, **kwargs)
+    return conn._stream_cache[stream._stream_id]
+
+
+def acquire_stream(conn, func, *args, **kwargs):
+    """ Create a stream, acquire a lock on its condition and return it """
+    stream = Stream.from_call(conn, True, func, *args, **kwargs)
     return conn._stream_cache[stream._stream_id]
 
 

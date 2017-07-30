@@ -2,6 +2,7 @@ from contextlib import contextmanager
 import itertools
 import threading
 from krpc.error import StreamError
+from krpc.event import Event
 from krpc.types import Types, DefaultArgument
 from krpc.service import create_service
 from krpc.encoder import Encoder
@@ -62,17 +63,35 @@ class Client(object):
         self.close()
 
     def add_stream(self, func, *args, **kwargs):
+        """ Add a stream to the server """
         if self._stream_connection is None:
             raise StreamError('Not connected to stream server')
         return krpc.stream.add_stream(self, func, *args, **kwargs)
 
+    def acquire_stream(self, func, *args, **kwargs):
+        """ Add a stream to the server and
+            acquire a lock on its condition variable """
+        if self._stream_connection is None:
+            raise StreamError('Not connected to stream server')
+        return krpc.stream.acquire_stream(self, func, *args, **kwargs)
+
     @contextmanager
     def stream(self, func, *args, **kwargs):
-        """ 'with' support """
+        """ 'with' support for add_stream """
         stream = self.add_stream(func, *args, **kwargs)
         try:
             yield stream
         finally:
+            stream.remove()
+
+    @contextmanager
+    def acquired_stream(self, func, *args, **kwargs):
+        """ 'with' support for acquire_stream  """
+        stream = self.acquire_stream(func, *args, **kwargs)
+        try:
+            yield stream
+        finally:
+            stream.release()
             stream.remove()
 
     def _invoke(self, service, procedure, args,
@@ -102,6 +121,8 @@ class Client(object):
         result = None
         if return_type is not None:
             result = Decoder.decode(response.results[0].value, return_type)
+            if isinstance(result, KRPC.Event):
+                result = Event(self, result)
         return result
 
     def _build_call(self, service, procedure, args,
